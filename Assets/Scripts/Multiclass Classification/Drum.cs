@@ -5,35 +5,55 @@ using HapticDllCs;
 using System. IO;
 using System. Linq;
 using TMPro;
+using Unity. VisualScripting;
+using UnityEngine. UIElements;
 
 public class Drum : MonoBehaviour
 {
     [Header ( "Prediction Result UI" )]
     public TextMeshProUGUI resultText; //예측 결과 텍스트
     public TextMeshProUGUI averagePredictionText; //예측 결과 평균 확률
+    public TextMeshProUGUI measuringText; //측정 중 텍스트
+
+    public TextMeshProUGUI timerText; // UI에 시간 표시
+
 
     [Header ( "IMU Data" )]
+    HapticDll hapticDll;
     public List<float> AccelList; // 3축 가속도 데이터 (x, y, z)
     public List<float> GyroList; // 3축 각속도 데이터 (x, y, z)
-    HapticDll hapticDll;
+    public List<float> QuatList; // 쿼터니언
     private List<float [ ]> imuDataList = new List<float [ ]> ( );
     private List<float [ ]> collectedIMUData = new List<float [ ]> ( ); // 측정된 데이터를 저장할 리스트
+    public Vector3 velocity = Vector3. zero;
+    public Vector3 position = Vector3. zero;
+    private float startTime;
+    private float lastTime;
+    private bool isFirstFrame = true;
+    private Vector3 lastPosition = Vector3. zero;
+    private List<float> deltaTimes = new List<float> ( ); // 디버깅용 deltaTime 저장
+    private Quaternion startQuat = Quaternion. identity;
+    private Quaternion quatBase = Quaternion. identity;
+    private bool isFirstQuatFrame = true;
+    private Quaternion quatPrevious = Quaternion. identity;
 
     [Header ( "CSV" )]
-    public string saveFilePath = "C:\\Users\\HARAM\\Desktop\\BsitckData\\Rainbow_Interpol";
+    public string saveFilePath = "C:\\Users\\HARAM\\Desktop\\BsitckData";
     private bool isMeasuring = false; // 데이터 측정 여부
     private int fileCount = 1; // 파일 이름에 사용할 카운터
-    private float startTime = 0f; // 측정 시작 시간  
 
     [Header ( "AI" )]
     public ModelAsset drumPredictionModel;  // ONNX 모델
     Worker worker;
     Tensor<float> tensor;
     private const int windowSize = 20;  // LSTM 입력 시퀀스 길이
-    private const int targetLength = 327; // 학습에 사용한 보간 데이터 길이
-    private const int numFeatures = 7; //학습에 사용된 피처의 개수 = Timestamp, Acc x, y, z, Gyro x, y, z
-    private readonly float [ ] means = new float [ numFeatures ] { 0.94993674f,  -0.94236681f , 0.09469404f , 0.21920955f , -48.42145678f , 3.17734557f , 10.92245527f , };
-    private readonly float [ ] stdDevs = new float [ numFeatures ] { 0.6001626f , 0.08435997f , 0.19742526f , 0.21477787f , 39.5622675f , 14.01326057f , 19.0116651f , };
+    private const int targetLength = 233; // 학습에 사용한 보간 데이터 길이
+    private const int numFeatures = 11; //학습에 사용된 피처의 개수 = Timestamp, Acc x, y, z, Gyro x, y, z
+    //private readonly float [ ] means = new float [ numFeatures ] { -9.57772847e-01f , 1.76769034e-01f , 1.22313497e-01f , -4.92310998e+01f , 5.87375237e+00f , 6.02729085e+00f , 2.28732239e-02f , -8.96720331e-03f , 1.31740590e-01f , 7.29521700e-01f , };
+    //private readonly float [ ] stdDevs = new float [ numFeatures ] { 0.0608875f , 0.17471903f , 0.19126073f , 35.85316051f , 14.20420111f , 12.68667366f , 0.07500953f , 0.04154843f , 0.18093661f , 0.45797922f , };
+
+    private readonly float [ ] means = new float [ numFeatures ] { 9.87578368e-01f , -9.57772847e-01f , 1.76769034e-01f , 1.22313497e-01f , -4.92310998e+01f , 5.87375237e+00f , 6.02729085e+00f , 2.28732239e-02f , -8.96720331e-03f , 1.31740590e-01f , 7.29521700e-01f , };
+    private readonly float [ ] stdDevs = new float [ numFeatures ] { 0.58634276f , 0.0608875f , 0.17471903f , 0.19126073f , 35.85316051f , 14.20420111f , 12.68667366f , 0.07500953f , 0.04154843f , 0.18093661f , 0.45797922f , };
 
 
 
@@ -43,16 +63,32 @@ public class Drum : MonoBehaviour
         var runtimeModel = ModelLoader. Load ( drumPredictionModel );
         worker = new Worker ( runtimeModel , BackendType. CPU );
 
+        // 초기 UI 설정
+        if ( measuringText != null )
+        {
+            measuringText. text = "데이터를 측정 중입니다...";
+            measuringText. gameObject. SetActive ( false ); // 시작 시 비활성화
+        }
+        if ( resultText != null )
+        {
+            resultText. gameObject. SetActive ( false ); // 시작 시 비활성화
+        }
+        if ( averagePredictionText != null )
+        {
+            averagePredictionText. gameObject. SetActive ( false ); // 시작 시 비활성화
+        }
 
     }
 
-    void Update ( )
+    void FixedUpdate ( )
     {
         if ( BstickManager. Instance == null )
         {
             Debug. LogError ( "BstickManager.Instance is null!" );
             return;
         }
+
+        //비스틱 버튼 컨트롤용
         if ( BstickManager. Instance. TouchButtonRelease ( ) )
         {
             ToggleMeasurement ( );
@@ -61,6 +97,24 @@ public class Drum : MonoBehaviour
         {
             CollectIMUData ( );
         }
+
+        //스페이스바 컨트롤용
+        //if ( BstickManager. Instance. isTracking )
+        //{
+        //    if ( !isMeasuring )
+        //    {
+        //        ToggleMeasurement ( );  // 측정 시작
+        //    }
+
+        //    CollectIMUData ( );
+        //}
+        //else
+        //{
+        //    if ( isMeasuring )
+        //    {
+        //        ToggleMeasurement ( );  // 측정 종료
+        //    }
+        //}
     }
 
     void ToggleMeasurement ( )
@@ -68,17 +122,53 @@ public class Drum : MonoBehaviour
         if ( !isMeasuring )
         {
             startTime = Time. time;
+            velocity = Vector3. zero;
+            position = Vector3. zero;
+            lastTime = 0f;
+            isFirstFrame = true;
+            isFirstQuatFrame = true;
+            deltaTimes. Clear ( );
             isMeasuring = true;
             collectedIMUData. Clear ( );
             imuDataList. Clear ( );
-            BstickManager. Instance. IMU_DataReceive ( ); // 초기 데이터 갱신
+
+            // UI 업데이트: measuringText 활성화, resultText 비활성화
+            if ( measuringText != null )
+            {
+                measuringText. gameObject. SetActive ( true );
+                timerText. text = "0초"; // 초기 타이머 텍스트
+            }
+            if ( resultText != null )
+            {
+                resultText. gameObject. SetActive ( false );
+            }
+            if ( averagePredictionText != null )
+            {
+                averagePredictionText. gameObject. SetActive ( false );
+            }
+
+            BstickManager. Instance. IMU_DataReceive ( );
             Debug. Log ( "측정 시작" );
+
+            
         }
         else
         {
             isMeasuring = false;
-            Debug. Log ( "측정 종료, 예측 시작" );
-            //SaveDataToCSV ( );
+            Debug. Log ( $"측정 종료, 예측 시작. 수집된 데이터 포인트: {collectedIMUData. Count}" );
+
+            // UI 업데이트: measuringText 비활성화
+            if ( measuringText != null )
+            {
+                measuringText. gameObject. SetActive ( false );
+            }
+
+            if ( deltaTimes. Count > 0 )
+            {
+                float avgDeltaTime = deltaTimes. Average ( );
+                Debug. Log ( $"평균 DeltaTime: {avgDeltaTime:F4}초 (샘플링 주파수: {1f / avgDeltaTime:F1}Hz)" );
+            }
+            SaveRawDataToCSV ( ); // 위치값 계산 후 원시 데이터 저장
             if ( collectedIMUData. Count >= windowSize )
             {
                 PredictSuccess ( );
@@ -88,6 +178,8 @@ public class Drum : MonoBehaviour
                 Debug. LogWarning ( "데이터가 충분하지 않습니다." );
             }
         }
+
+
     }
 
     void CollectIMUData ( )
@@ -95,22 +187,123 @@ public class Drum : MonoBehaviour
         BstickManager. Instance. IMU_DataReceive ( );
         var accelList = BstickManager. Instance. AccelList;
         var gyroList = BstickManager. Instance. GyroList;
+        var quatList = BstickManager. Instance. QuatList;
 
-        if ( accelList == null || gyroList == null || accelList. Count < 3 || gyroList. Count < 3 )
+        if ( accelList == null || gyroList == null || accelList. Count < 3 || gyroList. Count < 3 || quatList == null || quatList. Count < 3 )
         {
             Debug. LogError ( "IMU data is invalid!" );
             return;
         }
 
         float currentTime = Time. time - startTime;
+        float deltaTime = currentTime - lastTime;
+
+        if ( timerText != null )
+        {
+            timerText. text = $"{Mathf. FloorToInt ( currentTime )}초";
+        }
+
+        Vector3 acceleration = new Vector3 ( accelList [ 0 ] - 1.0f , accelList [ 1 ] , accelList [ 2 ] );
+        Quaternion quat1 = new Quaternion ( quatList [ 1 ] , quatList [ 2 ] , quatList [ 3 ] , quatList [ 0 ] );
+
+        if ( isFirstQuatFrame )
+        {
+            startQuat = quat1;
+            quatBase = Quaternion. Inverse ( startQuat );
+            quatPrevious = quat1 * quatBase;  // 초기값 셋팅
+            isFirstQuatFrame = false;
+        }
+
+        Quaternion quat = quat1 * quatBase;
+
+        // 쿼터니언 sign-flip 보정
+        if ( Quaternion. Dot ( quatPrevious , quat ) < 0 )
+        {
+            quat. Set ( -quat. x , -quat. y , -quat. z , -quat. w );
+        }
+
+        ChangeDataAfterCalculate ( );
+
+        // 결과값 저장
         float [ ] imuFrame = {
             currentTime,
             accelList[0], accelList[1], accelList[2],
-            gyroList[0], gyroList[1], gyroList[2]
+            gyroList[0], gyroList[1], gyroList[2],
+            quat.x, quat.y, quat.z, quat.w
         };
+
+
         imuDataList. Add ( imuFrame );
         collectedIMUData. Add ( imuFrame );
+
+        // 값 갱신
+        //lastTime = currentTime;
+        //lastPosition = position;
+        //quatPrevious = quat; // 이전 쿼터니언 갱신
+
+        void ChangeDataAfterCalculate ( )
+        {
+            lastTime = currentTime;
+            lastPosition = position;
+            quatPrevious = quat; // 이전 쿼터니언 갱신
+        }
     }
+
+    void SaveRawDataToCSV ( )
+    {
+        try
+        {
+            if ( imuDataList. Count == 0 )
+            {
+                Debug. LogError ( "imuDataList가 비어 있습니다." );
+                return;
+            }
+
+            int index = 0;
+            string baseFileName = "Drum_prediction_data";
+            string fileName = Path. Combine ( saveFilePath , baseFileName + ".csv" );
+
+            // 파일이 존재하면 _1, _2, _3... 붙이기
+            while ( File. Exists ( fileName ) )
+            {
+                index++;
+                fileName = Path. Combine ( saveFilePath , $"{baseFileName}_{index}.csv" );
+            }
+
+            using ( StreamWriter writer = new StreamWriter ( fileName , false ) )
+            {
+                //writer. WriteLine ( "Timestamp,Acc_X,Acc_Y,Gyro_X,Gyro_Y,Gyro_Z, Pos_X, Pos_Y, Pos_Z, Dist_X, Dist_Y, Dist_Z" );
+                writer. WriteLine ( "Timestamp,Acc_X,Acc_Y,Acc_Z,Gyro_X,Gyro_Y,Gyro_Z,Quat_X,Quat_Y,Quat_Z,Quat_W" );
+               
+
+                foreach ( float [ ] data in imuDataList )
+                {
+                    writer. WriteLine ( $"{data [ 0 ]},{data [ 1 ]},{data [ 2 ]},{data [ 3 ]},{data [ 4 ]},{data [ 5 ]},{data [ 6 ]},{data [ 7 ]},{data [ 8 ]},{data [ 9 ]},{data [ 10 ]}" );
+                }
+            }
+            Debug. Log ( $"원시 데이터 저장 완료: {fileName}" );
+
+            // 위치 데이터 범위 디버깅
+            float minPosX = float. MaxValue, maxPosX = float. MinValue;
+            float minPosY = float. MaxValue, maxPosY = float. MinValue;
+            float minPosZ = float. MaxValue, maxPosZ = float. MinValue;
+            foreach ( var data in imuDataList )
+            {
+                minPosX = Mathf. Min ( minPosX , data [ 7 ] );
+                maxPosX = Mathf. Max ( maxPosX , data [ 7 ] );
+                minPosY = Mathf. Min ( minPosY , data [ 8 ] );
+                maxPosY = Mathf. Max ( maxPosY , data [ 8 ] );
+                minPosZ = Mathf. Min ( minPosZ , data [ 9 ] );
+                maxPosZ = Mathf. Max ( maxPosZ , data [ 9 ] );
+            }
+            Debug. Log ( $"원시 위치 데이터 범위: Pos_X=({minPosX:F2},{maxPosX:F2}), Pos_Y=({minPosY:F2},{maxPosY:F2}), Pos_Z=({minPosZ:F2},{maxPosZ:F2})" );
+        }
+        catch ( System. Exception e )
+        {
+            Debug. LogError ( $"원시 데이터 저장 실패: {e. Message}" );
+        }
+    }
+
 
     List<float [ ]> InterpolateToTargetLength ( List<float [ ]> dataList , int targetLength )
     {
@@ -135,9 +328,22 @@ public class Drum : MonoBehaviour
             float interpolatedGyroX = Mathf. Lerp ( dataList [ index1 ] [ 4 ] , dataList [ index2 ] [ 4 ] , t );
             float interpolatedGyroY = Mathf. Lerp ( dataList [ index1 ] [ 5 ] , dataList [ index2 ] [ 5 ] , t );
             float interpolatedGyroZ = Mathf. Lerp ( dataList [ index1 ] [ 6 ] , dataList [ index2 ] [ 6 ] , t );
+            float interpolatedQuatX = Mathf. Lerp ( dataList [ index1 ] [ 7 ] , dataList [ index2 ] [ 7 ] , t );
+            float interpolatedQuatY = Mathf. Lerp ( dataList [ index1 ] [ 8 ] , dataList [ index2 ] [ 8 ] , t );
+            float interpolatedQuatZ = Mathf. Lerp ( dataList [ index1 ] [ 9 ] , dataList [ index2 ] [ 9 ] , t );
+            float interpolatedQuatW = Mathf. Lerp ( dataList [ index1 ] [ 10 ] , dataList [ index2 ] [ 10 ] , t );
+            //float interpolatedPosX = Mathf. Lerp ( dataList [ index1 ] [ 7 ] , dataList [ index2 ] [ 7 ] , t );
+            //float interpolatedPosY = Mathf. Lerp ( dataList [ index1 ] [ 8 ] , dataList [ index2 ] [ 8 ] , t );
+            //float interpolatedPosZ = Mathf. Lerp ( dataList [ index1 ] [ 9 ] , dataList [ index2 ] [ 9 ] , t );
+            //float interpolatedDistX = Mathf. Lerp ( dataList [ index1 ] [ 10 ] , dataList [ index2 ] [ 10 ] , t );
+            //float interpolatedDistY = Mathf. Lerp ( dataList [ index1 ] [ 11 ] , dataList [ index2 ] [ 11 ] , t );
+            //float interpolatedDistZ = Mathf. Lerp ( dataList [ index1 ] [ 12 ] , dataList [ index2 ] [ 12 ] , t );
+
+
+
 
             // 보간된 값을 새로운 프레임에 추가
-            float [ ] interpolatedFrame = new float [ 7 ];
+            float [ ] interpolatedFrame = new float [ 11 ];
             interpolatedFrame [ 0 ] = interpolatedTime;
             interpolatedFrame [ 1 ] = interpolatedAccelX;
             interpolatedFrame [ 2 ] = interpolatedAccelY;
@@ -145,9 +351,23 @@ public class Drum : MonoBehaviour
             interpolatedFrame [ 4 ] = interpolatedGyroX;
             interpolatedFrame [ 5 ] = interpolatedGyroY;
             interpolatedFrame [ 6 ] = interpolatedGyroZ;
+            interpolatedFrame [ 7 ] = interpolatedQuatX;
+            interpolatedFrame [ 8 ] = interpolatedQuatY;
+            interpolatedFrame [ 9 ] = interpolatedQuatZ;
+            interpolatedFrame [ 10 ] = interpolatedQuatW;
+            //interpolatedFrame [ 7 ] = interpolatedPosX;
+            //interpolatedFrame [ 8 ] = interpolatedPosY;
+            //interpolatedFrame [ 9 ] = interpolatedPosZ;
+            //interpolatedFrame [ 10 ] = interpolatedDistX;
+            //interpolatedFrame [ 11 ] = interpolatedDistY;
+            //interpolatedFrame [ 12 ] = interpolatedDistZ;
 
             interpolatedData. Add ( interpolatedFrame );
         }
+
+        Debug. Log ( $"보간된 데이터: 첫 프레임={string. Join ( "," , interpolatedData [ 0 ]. Select ( x => x. ToString ( "F2" ) ) )}, " +
+                  $"마지막 프레임={string. Join ( "," , interpolatedData [ targetLength - 1 ]. Select ( x => x. ToString ( "F2" ) ) )}" );
+
 
         return interpolatedData;
     }
@@ -186,7 +406,7 @@ public class Drum : MonoBehaviour
 
             for ( int i = startIdx ; i < startIdx + windowSize ; i++ )
             {
-                for ( int j = 0 ; j < numFeatures ; j++ )  // ✅ 0부터 7개
+                for ( int j = 0 ; j < numFeatures ; j++ )
                     inputArray [ index++ ] = interpolatedData [ i ] [ j ];
             }
 
@@ -250,7 +470,6 @@ public class Drum : MonoBehaviour
 
         // 평균 확률도 예시로 출력 (여긴 majority class의 확률만 표시)
         float majorityPercentage = ( float ) classCounts [ majorityClass ] / totalCount * 100f;
-        averagePredictionText. text = $"Majority 확률: {majorityPercentage:F2}%";
 
 
 
@@ -260,23 +479,73 @@ public class Drum : MonoBehaviour
 
             case 0:
                 Debug. Log ( "북 치기 동작 성공입니다." );
-                resultText. text = $"북치기 동작 성공입니다.";
+                if ( resultText != null )
+                {
+                    resultText. text = "북 치기 동작 성공입니다.";
+                    resultText. color = new Color ( 0.0f , 0.5f , 0.0f );
+                    resultText. gameObject. SetActive ( true );
+                }
+                if ( averagePredictionText != null )
+                {
+                    averagePredictionText. text = $"성공 확률: {majorityPercentage:F2}%";
+                    averagePredictionText. gameObject. SetActive ( true );
+                }
                 break;
             case 1:
                 Debug. Log ( "실패 1: 팔의 높이가 너무 높습니다." );
-                resultText. text = $"실패 1: 팔의 높이가 너무 높습니다.";
+                if ( resultText != null )
+                {
+                    resultText. text = "북 치기 동작 실패입니다.";
+                    resultText. color = Color. red;
+                    resultText. gameObject. SetActive ( true );
+                }
+                if ( averagePredictionText != null )
+                {
+                    averagePredictionText. text = $"실패 확률: {majorityPercentage:F2}%";
+                    averagePredictionText. gameObject. SetActive ( true );
+                }
                 break;
             case 2:
                 Debug. Log ( "실패 2: 팔의 높이가 너무 낮습니다." );
-                resultText. text = $"실패 2: 팔의 높이가 너무 낮습니다.";
+                if ( resultText != null )
+                {
+                    resultText. text = "북 치기 동작 실패입니다.";
+                    resultText. color = Color. red;
+                    resultText. gameObject. SetActive ( true );
+                }
+                if ( averagePredictionText != null )
+                {
+                    averagePredictionText. text = $"실패 확률: {majorityPercentage:F2}%";
+                    averagePredictionText. gameObject. SetActive ( true );
+                }
                 break;
             case 3:
                 Debug. Log ( "실패 3: 회전 각도가 큽니다. 너무 과하게 회전하지 않도록 주의하세요!" );
-                resultText. text = $"실패 3: 회전 각도가 큽니다. 너무 과하게 회전하지 않도록 주의하세요!";
+                if ( resultText != null )
+                {
+                    resultText. text = "북 치기 동작 실패입니다.";
+                    resultText. color = Color. red;
+                    resultText. gameObject. SetActive ( true );
+                }
+                if ( averagePredictionText != null )
+                {
+                    averagePredictionText. text = $"실패 확률: {majorityPercentage:F2}%";
+                    averagePredictionText. gameObject. SetActive ( true );
+                }
                 break;
             case 4:
                 Debug. Log ( "실패 4: 회전 각도가 작습니다. 팔을 조금만 더 움직여서 북을 쳐 보도록 하세요!" );
-                resultText. text = $"실패 4: 회전 각도가 작습니다. 팔을 조금만 더 움직여서 북을 쳐 보도록 하세요!";
+                if ( resultText != null )
+                {
+                    resultText. text = "북 치기 동작 실패입니다.";
+                    resultText. color = Color. red;
+                    resultText. gameObject. SetActive ( true );
+                }
+                if ( averagePredictionText != null )
+                {
+                    averagePredictionText. text = $"실패 확률: {majorityPercentage:F2}%";
+                    averagePredictionText. gameObject. SetActive ( true );
+                }
                 break;
             default:
                 Debug. Log ( "알 수 없는 클래스입니다." );

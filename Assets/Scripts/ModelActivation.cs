@@ -16,7 +16,6 @@ public class ModelActivation : MonoBehaviour
     private bool isEActive = false;
 
 
-
     void Start ( )
     {
         OrangeButton. onClick. AddListener ( ( ) => ToggleObject ( "A" ) );
@@ -24,6 +23,7 @@ public class ModelActivation : MonoBehaviour
         RainbowButton. onClick. AddListener ( ( ) => ToggleObject ( "C" ) );
         SupermanButton. onClick. AddListener ( ( ) => ToggleObject ( "D" ) );
         DumbbellButton. onClick. AddListener ( ( ) => ToggleObject ( "E" ) );
+
 
     }
 
@@ -76,3 +76,5 @@ public class ModelActivation : MonoBehaviour
 
 
 }
+
+
