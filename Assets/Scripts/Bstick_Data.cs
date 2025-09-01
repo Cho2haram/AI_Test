@@ -138,7 +138,7 @@ public class Bstick_Data : MonoBehaviour
         }
 
         // ✅ CSV 헤더 작성
-        string header = "TimeStamp,Accel_X,Accel_Y,Accel_Z,Gyro_X,Gyro_Y,Gyro_Z,Quat_1,Quat_2,Quat_3,Quat_4";
+        string header = "TimeStamp,Accel_X,Accel_Y,Accel_Z,Gyro_X,Gyro_Y,Gyro_Z,Quat_W,Quat_X,Quat_Y,Quat_Z";
 
         // ✅ 파일 생성 및 헤더 작성
         try
@@ -235,9 +235,9 @@ public class Bstick_Data : MonoBehaviour
             // QuatList에서 Quaternion 생성 (x, y, z, w 순서 가정)
             Quaternion quaternion = new Quaternion ( QuatList [ 1 ] , QuatList [ 2 ] , QuatList [ 3 ] , QuatList [ 0 ] );
             transform.rotation = quaternion;
-            index++;
-            Debug. Log ( "Index = " + index);
-            Debug. Log ( transform. rotation );
+            //index++;
+            //Debug. Log ( "Index = " + index);
+            //Debug. Log ( transform. rotation );
 
             //Debug. Log ( $"Quaternion: X={quaternion. x}, Y={quaternion. y}, Z={quaternion. z}, W={quaternion. w}" );
 

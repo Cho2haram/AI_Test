@@ -12,7 +12,6 @@ public class Dumbbell : MonoBehaviour
     public TextMeshProUGUI resultText; //예측 결과 텍스트
     public TextMeshProUGUI averagePredictionText; //예측 결과 평균 확률
     public TextMeshProUGUI measuringText; //측정 중 텍스트
-
     public TextMeshProUGUI timerText; // UI에 시간 표시
 
 
@@ -25,14 +24,22 @@ public class Dumbbell : MonoBehaviour
     private List<float [ ]> collectedIMUData = new List<float [ ]> ( ); // 측정된 데이터를 저장할 리스트
     public Vector3 velocity = Vector3. zero;
     public Vector3 position = Vector3. zero;
-    private float startTime;
-    private float lastTime;
+    private Vector3 acceleration1 = Vector3. zero;
+    private Vector3 acceleration2 = Vector3. zero;
+    private Vector3 velocity1 = Vector3. zero;
+    private Vector3 velocity2 = Vector3. zero;
+    private Vector3 cumulativeDistance = Vector3. zero;
+    private Quaternion quatCurrent = Quaternion. identity;
     private bool isFirstFrame = true;
-    private Vector3 lastPosition = Vector3. zero;
     private List<float> deltaTimes = new List<float> ( ); // 디버깅용 deltaTime 저장
-    private Quaternion startQuat = Quaternion. identity;
     private Quaternion quatBase = Quaternion. identity;
     private bool isFirstQuatFrame = true;
+    private Quaternion quatPrevious = Quaternion. identity;
+    private float startTime;
+    private float lastTime;
+    private Vector3 lastPosition = Vector3. zero;
+    private Quaternion startQuat = Quaternion. identity;
+
 
 
     [Header ( "CSV" )]
@@ -45,15 +52,12 @@ public class Dumbbell : MonoBehaviour
     Worker worker;
     Tensor<float> tensor;
     private const int windowSize = 20;  // LSTM 입력 시퀀스 길이 (10 프레임)
-    private const int targetLength = 241; // 학습에 사용한 보간 데이터 길이
-    private const int numFeatures = 11;
-
-    private readonly float [ ] means = new float [ numFeatures ] { 0.98418445f,  -0.22333079f,  -0.07803041f,   0.42631591f, -70.77228552f,
-  16.77271984f,   7.71771155f,   0.08334781f,   0.23820423f,   0.09726064f,   0.64298649f, };
-    private readonly float [ ] stdDevs = new float [ numFeatures ] { 0.5837098f,   0.31507044f,  0.61829968f,  0.55283349f, 59.34829778f, 34.40204681f,
- 34.92500387f,  0.21142224f,  0.19059224f, 0.18739241f,  0.20494981f, };
-
-
+    private const int targetLength = 783; // 학습에 사용한 보간 데이터 길이
+    private const int numFeatures = 10;
+    private readonly float [ ] means = new float [ numFeatures ] { 2.11473673f,  -0.27600353f,  -0.21084446f,   0.23087731f, -32.19833607f,
+   5.12448f,   3.39325521f,   3.45667966f,   4.26474288f,   4.51742721f, };
+    private readonly float [ ] stdDevs = new float [ numFeatures ] { 1.26385884f,   0.37836776f,   0.56477101f,   0.61346143f,  46.34502881f,
+  27.98160818f, 24.0428575f,   27.86635984f, 116.67688285f,  35.62020752f };
 
     void Start ( )
     {
@@ -77,7 +81,7 @@ public class Dumbbell : MonoBehaviour
         }
     }
 
-    void FixedUpdate ( )
+    void Update ( )
     {
         if ( BstickManager. Instance == null )
         {
@@ -94,24 +98,16 @@ public class Dumbbell : MonoBehaviour
         {
             CollectIMUData ( );
         }
+    }
 
-        //스페이스바 컨트롤용
-        //if ( BstickManager. Instance. isTracking )
-        //{
-        //    if ( !isMeasuring )
-        //    {
-        //        ToggleMeasurement ( );  // 측정 시작
-        //    }
+    void ResetData ( )
+    {
+        quatBase = Quaternion. identity;
+        quatCurrent = Quaternion. identity;
+        quatPrevious = Quaternion. identity;
 
-        //    CollectIMUData ( );
-        //}
-        //else
-        //{
-        //    if ( isMeasuring )
-        //    {
-        //        ToggleMeasurement ( );  // 측정 종료
-        //    }
-        //}
+        isFirstFrame = true;
+        isFirstQuatFrame = true;
     }
 
     void ToggleMeasurement ( )
@@ -119,15 +115,12 @@ public class Dumbbell : MonoBehaviour
         if ( !isMeasuring )
         {
             startTime = Time. time;
-            velocity = Vector3. zero;
-            position = Vector3. zero;
             lastTime = 0f;
-            isFirstFrame = true;
-            isFirstQuatFrame = true;
-            deltaTimes. Clear ( );
+
             isMeasuring = true;
             collectedIMUData. Clear ( );
             imuDataList. Clear ( );
+            ResetData ( );
 
             // UI 업데이트: measuringText 활성화, resultText 비활성화
             if ( measuringText != null )
@@ -144,12 +137,14 @@ public class Dumbbell : MonoBehaviour
                 averagePredictionText. gameObject. SetActive ( false );
             }
 
+
             BstickManager. Instance. IMU_DataReceive ( );
             Debug. Log ( "측정 시작" );
         }
         else
         {
             isMeasuring = false;
+            SaveRawDataToCSV ( );
             Debug. Log ( $"측정 종료, 예측 시작. 수집된 데이터 포인트: {collectedIMUData. Count}" );
 
             // UI 업데이트: measuringText 비활성화
@@ -163,7 +158,6 @@ public class Dumbbell : MonoBehaviour
                 float avgDeltaTime = deltaTimes. Average ( );
                 Debug. Log ( $"평균 DeltaTime: {avgDeltaTime:F4}초 (샘플링 주파수: {1f / avgDeltaTime:F1}Hz)" );
             }
-            SaveRawDataToCSV ( ); // 위치값 계산 후 원시 데이터 저장
             if ( collectedIMUData. Count >= windowSize )
             {
                 PredictSuccess ( );
@@ -181,7 +175,6 @@ public class Dumbbell : MonoBehaviour
         var accelList = BstickManager. Instance. AccelList;
         var gyroList = BstickManager. Instance. GyroList;
         var quatList = BstickManager. Instance. QuatList;
-        Quaternion quat1 = new Quaternion ( quatList [ 1 ] , quatList [ 2 ] , quatList [ 3 ] , quatList [ 0 ] );
 
         if ( accelList == null || gyroList == null || accelList. Count < 3 || gyroList. Count < 3 || quatList == null || quatList. Count < 3 )
         {
@@ -197,40 +190,83 @@ public class Dumbbell : MonoBehaviour
             timerText. text = $"{Mathf. FloorToInt ( currentTime )}초";
         }
 
-        Vector3 acceleration = new Vector3 ( accelList [ 0 ] , accelList [ 1 ] , accelList [ 2 ] );
-        velocity += acceleration * deltaTime;
-        position += velocity * deltaTime;
-
-        // 속도의 절댓값 × dt로 거리 계산
-        float dx = Mathf. Abs ( velocity. x ) * deltaTime;
-        float dy = Mathf. Abs ( velocity. y ) * deltaTime;
-        float dz = Mathf. Abs ( velocity. z ) * deltaTime;
+        Vector3 acceleration = new Vector3 ( accelList [ 0 ] - 1.0f , accelList [ 1 ] , accelList [ 2 ] );
+        // 쿼터니언 받아오기 (Bstick 순서 → Unity)
+        Quaternion quatRaw = new Quaternion ( quatList [ 1 ] , quatList [ 2 ] , quatList [ 3 ] , quatList [ 0 ] );
+        Quaternion quatUnity = ConvertIMUToUnity ( Canonicalize ( quatRaw ) );
 
         if ( isFirstQuatFrame )
         {
-            startQuat = quat1;
+            startQuat = quatUnity;
             quatBase = Quaternion. Inverse ( startQuat );
+            quatPrevious = quatBase * quatUnity;
             isFirstQuatFrame = false;
         }
 
-        Quaternion quat = quat1 * quatBase;
+        Quaternion quat = quatBase * quatUnity;
 
+
+        // Euler 변환
+        Vector3 eulerAngles = quat. eulerAngles;
+        eulerAngles. x = Mathf. DeltaAngle ( 0f , eulerAngles. x );
+        eulerAngles. y = Mathf. DeltaAngle ( 0f , eulerAngles. y );
+        eulerAngles. z = Mathf. DeltaAngle ( 0f , eulerAngles. z );
+
+        // 결과값 저장
         float [ ] imuFrame = {
             currentTime,
-            accelList[0], accelList[1], accelList[2],
-            gyroList[0], gyroList[1], gyroList[2],
-            quat.x, quat.y, quat.z, quat.w,
-            //position. x, position.y, position.z,
-            //cumulativeDx, cumulativeDy, cumulativeDz
-
+        accelList[0], accelList[1], accelList[2],
+        gyroList[0], gyroList[1], gyroList[2],
+        eulerAngles.x, eulerAngles.y, eulerAngles.z
         };
 
 
         imuDataList. Add ( imuFrame );
         collectedIMUData. Add ( imuFrame );
-        lastTime = currentTime;
-        lastPosition = position;
+
+        ChangeDataAfterCalculate ( );
+
+
+        void ChangeDataAfterCalculate ( )
+        {
+            lastTime = currentTime;
+            lastPosition = position;
+            quatPrevious = quat;
+        }
     }
+
+    // 쿼터니언 정규화
+    public Quaternion Canonicalize ( float x , float y , float z , float w )
+    {
+        Quaternion quat = new Quaternion ( x , y , z , w ); // x, y, z, w 변환
+        quat. Normalize ( );
+
+        return quat;
+    }
+
+    public Quaternion Canonicalize ( Quaternion quat )
+    {
+        quat. Normalize ( );
+
+        if ( Quaternion. Dot ( quatPrevious , quat ) < 0f )
+        {
+            quat = new Quaternion ( -quat. x , -quat. y , -quat. z , -quat. w );
+        }
+
+        return quat;
+    }
+
+    // IMU → Unity 좌표계 변환
+    Quaternion ConvertIMUToUnity ( Quaternion imuQ )
+    {
+        Quaternion qLeftHand = new Quaternion ( imuQ. x , imuQ. y , -imuQ. z , -imuQ. w );
+        //return new Quaternion ( -qLeftHand. z , qLeftHand. x , qLeftHand. y , qLeftHand. w );
+        return new Quaternion ( -qLeftHand. y , qLeftHand. x , qLeftHand. z , qLeftHand. w );
+
+
+
+    }
+
 
     void SaveRawDataToCSV ( )
     {
@@ -243,7 +279,7 @@ public class Dumbbell : MonoBehaviour
             }
 
             int index = 0;
-            string baseFileName = "Dumbbell_prediction_data";
+            string baseFileName = "Drum_prediction_data";
             string fileName = Path. Combine ( saveFilePath , baseFileName + ".csv" );
 
             // 파일이 존재하면 _1, _2, _3... 붙이기
@@ -256,12 +292,12 @@ public class Dumbbell : MonoBehaviour
             using ( StreamWriter writer = new StreamWriter ( fileName , false ) )
             {
                 //writer. WriteLine ( "Timestamp,Acc_X,Acc_Y,Gyro_X,Gyro_Y,Gyro_Z, Pos_X, Pos_Y, Pos_Z, Dist_X, Dist_Y, Dist_Z" );
-                writer. WriteLine ( "Timestamp,Acc_X,Acc_Y,Acc_Z,Gyro_X,Gyro_Y,Gyro_Z,Quat_X,Quat_Y,Quat_Z,Quat_W" );
+                writer. WriteLine ( "Timestamp,Acc_X,Acc_Y,Acc_Z,Gyro_X,Gyro_Y,Gyro_Z,Euler_x,Euler_y,Euler_z" );
 
 
                 foreach ( float [ ] data in imuDataList )
                 {
-                    writer. WriteLine ( $"{data [ 0 ]},{data [ 1 ]},{data [ 2 ]},{data [ 3 ]},{data [ 4 ]},{data [ 5 ]},{data [ 6 ]},{data [ 7 ]},{data [ 8 ]},{data [ 9 ]},{data [ 10 ]}" );
+                    writer. WriteLine ( $"{data [ 0 ]},{data [ 1 ]},{data [ 2 ]},{data [ 3 ]},{data [ 4 ]},{data [ 5 ]},{data [ 6 ]},{data [ 7 ]},{data [ 8 ]}, {data [ 9 ]}" );
                 }
             }
             Debug. Log ( $"원시 데이터 저장 완료: {fileName}" );
@@ -302,8 +338,7 @@ public class Dumbbell : MonoBehaviour
             int index2 = Mathf. Min ( index1 + 1 , currentLength - 1 );
             float t = ( i * stepSize ) - index1;
 
-
-            // 가속도와 자이로스코프 데이터를 보간
+            //Acc, Gyro, Euler 데이터 보간
             float interpolatedTime = Mathf. Lerp ( dataList [ index1 ] [ 0 ] , dataList [ index2 ] [ 0 ] , t );
             float interpolatedAccelX = Mathf. Lerp ( dataList [ index1 ] [ 1 ] , dataList [ index2 ] [ 1 ] , t );
             float interpolatedAccelY = Mathf. Lerp ( dataList [ index1 ] [ 2 ] , dataList [ index2 ] [ 2 ] , t );
@@ -311,22 +346,12 @@ public class Dumbbell : MonoBehaviour
             float interpolatedGyroX = Mathf. Lerp ( dataList [ index1 ] [ 4 ] , dataList [ index2 ] [ 4 ] , t );
             float interpolatedGyroY = Mathf. Lerp ( dataList [ index1 ] [ 5 ] , dataList [ index2 ] [ 5 ] , t );
             float interpolatedGyroZ = Mathf. Lerp ( dataList [ index1 ] [ 6 ] , dataList [ index2 ] [ 6 ] , t );
-            float interpolatedQuatX = Mathf. Lerp ( dataList [ index1 ] [ 7 ] , dataList [ index2 ] [ 7 ] , t );
-            float interpolatedQuatY = Mathf. Lerp ( dataList [ index1 ] [ 8 ] , dataList [ index2 ] [ 8 ] , t );
-            float interpolatedQuatZ = Mathf. Lerp ( dataList [ index1 ] [ 9 ] , dataList [ index2 ] [ 9 ] , t );
-            float interpolatedQuatW = Mathf. Lerp ( dataList [ index1 ] [ 10 ] , dataList [ index2 ] [ 10 ] , t );
-            //float interpolatedPosX = Mathf. Lerp ( dataList [ index1 ] [ 7 ] , dataList [ index2 ] [ 7 ] , t );
-            //float interpolatedPosY = Mathf. Lerp ( dataList [ index1 ] [ 8 ] , dataList [ index2 ] [ 8 ] , t );
-            //float interpolatedPosZ = Mathf. Lerp ( dataList [ index1 ] [ 9 ] , dataList [ index2 ] [ 9 ] , t );
-            //float interpolatedDistX = Mathf. Lerp ( dataList [ index1 ] [ 10 ] , dataList [ index2 ] [ 10 ] , t );
-            //float interpolatedDistY = Mathf. Lerp ( dataList [ index1 ] [ 11 ] , dataList [ index2 ] [ 11 ] , t );
-            //float interpolatedDistZ = Mathf. Lerp ( dataList [ index1 ] [ 12 ] , dataList [ index2 ] [ 12 ] , t );
-
-
-
+            float interpolatedeulerX = Mathf. Lerp ( dataList [ index1 ] [ 7 ] , dataList [ index2 ] [ 7 ] , t );
+            float interpolatedeulerY = Mathf. Lerp ( dataList [ index1 ] [ 8 ] , dataList [ index2 ] [ 8 ] , t );
+            float interpolatedeulerZ = Mathf. Lerp ( dataList [ index1 ] [ 9 ] , dataList [ index2 ] [ 9 ] , t );
 
             // 보간된 값을 새로운 프레임에 추가
-            float [ ] interpolatedFrame = new float [ 11 ];
+            float [ ] interpolatedFrame = new float [ 10 ];
             interpolatedFrame [ 0 ] = interpolatedTime;
             interpolatedFrame [ 1 ] = interpolatedAccelX;
             interpolatedFrame [ 2 ] = interpolatedAccelY;
@@ -334,16 +359,10 @@ public class Dumbbell : MonoBehaviour
             interpolatedFrame [ 4 ] = interpolatedGyroX;
             interpolatedFrame [ 5 ] = interpolatedGyroY;
             interpolatedFrame [ 6 ] = interpolatedGyroZ;
-            interpolatedFrame [ 7 ] = interpolatedQuatX;
-            interpolatedFrame [ 8 ] = interpolatedQuatY;
-            interpolatedFrame [ 9 ] = interpolatedQuatZ;
-            interpolatedFrame [ 10 ] = interpolatedQuatW;
-            //interpolatedFrame [ 7 ] = interpolatedPosX;
-            //interpolatedFrame [ 8 ] = interpolatedPosY;
-            //interpolatedFrame [ 9 ] = interpolatedPosZ;
-            //interpolatedFrame [ 10 ] = interpolatedDistX;
-            //interpolatedFrame [ 11 ] = interpolatedDistY;
-            //interpolatedFrame [ 12 ] = interpolatedDistZ;
+            interpolatedFrame [ 7 ] = interpolatedeulerX;
+            interpolatedFrame [ 8 ] = interpolatedeulerY;
+            interpolatedFrame [ 9 ] = interpolatedeulerZ;
+
 
             interpolatedData. Add ( interpolatedFrame );
         }
@@ -377,7 +396,7 @@ public class Dumbbell : MonoBehaviour
 
         List<float [ ]> interpolatedData = InterpolateToTargetLength ( collectedIMUData , targetLength );
         int totalFrames = interpolatedData. Count;
-        int stepSize = 10;
+        int stepSize = 5;
         int numPredictions = ( totalFrames - windowSize + 1 + stepSize - 1 ) / stepSize;
 
         List<int> predictions = new List<int> ( );
@@ -477,7 +496,7 @@ public class Dumbbell : MonoBehaviour
                 Debug. Log ( "실패 1: 팔꿈치와 팔목 사이의 각도가 정상 범위보다 부족합니다." );
                 if ( resultText != null )
                 {
-                    resultText. text = "아령 들기 동작 실패입니다.";
+                    resultText. text = "팔꿈치와 팔목 사이의 각도가 정상 범위보다 부족합니다.";
                     resultText. color = Color. red;
                     resultText. gameObject. SetActive ( true );
                 }
@@ -491,7 +510,7 @@ public class Dumbbell : MonoBehaviour
                 Debug. Log ( "실패 2: 팔의 위치가 왼쪽으로 이동되어 정상 범위를 벗어났습니다." );
                 if ( resultText != null )
                 {
-                    resultText. text = "아령 들기 동작 실패입니다.";
+                    resultText. text = "팔의 위치가 왼쪽으로 이동되어 정상 범위를 벗어났습니다.";
                     resultText. color = Color. red;
                     resultText. gameObject. SetActive ( true );
                 }
@@ -505,7 +524,7 @@ public class Dumbbell : MonoBehaviour
                 Debug. Log ( "실패 3: 팔의 위치가 오른쪽으로 이동되어 정상 범위를 벗어났습니다." );
                 if ( resultText != null )
                 {
-                    resultText. text = "아령 들기 동작 실패입니다.";
+                    resultText. text = "팔의 위치가 오른쪽으로 이동되어 정상 범위를 벗어났습니다.";
                     resultText. color = Color. red;
                     resultText. gameObject. SetActive ( true );
                 }
@@ -522,52 +541,7 @@ public class Dumbbell : MonoBehaviour
     }
 
 
-    void SaveDataToCSV ( )
-    {
-        try
-        {
-            if ( imuDataList. Count == 0 )
-            {
-                Debug. LogError ( "imuDataList가 비어 있습니다." );
-                return;
-            }
-
-            // 보간 수행
-            List<float [ ]> interpolatedData = InterpolateToTargetLength ( imuDataList , targetLength );
-
-            if ( interpolatedData. Count == 0 )
-            {
-                Debug. LogError ( "보간된 데이터가 비어 있습니다." );
-                return;
-            }
-            foreach ( var data in interpolatedData )
-            {
-                if ( data. Length < 7 )
-                {
-                    Debug. LogError ( $"잘못된 데이터 크기: {data. Length} (7이어야 함)" );
-                    return;
-                }
-            }
-
-            string fileName = Path. Combine ( saveFilePath , "data_" + fileCount + ".csv" );
-            fileCount++;
-
-            using ( StreamWriter writer = new StreamWriter ( fileName , false ) )
-            {
-                writer. WriteLine ( "TimeStamp,Accel_X,Accel_Y,Accel_Z,Gyro_X,Gyro_Y,Gyro_Z" );
-                foreach ( float [ ] data in interpolatedData ) // 보간된 데이터 저장
-                {
-                    writer. WriteLine ( $"{data [ 0 ]},{data [ 1 ]},{data [ 2 ]},{data [ 3 ]},{data [ 4 ]},{data [ 5 ]},{data [ 6 ]}" );
-                }
-            }
-            Debug. Log ( $"보간 데이터 저장 완료: {fileName}" );
-        }
-        catch ( System. Exception e )
-        {
-            Debug. LogError ( $"보간 데이터 저장 실패: {e. Message}" );
-        }
-    }
-
+   
 
 
     // 터치 버튼이 눌렸는지 확인

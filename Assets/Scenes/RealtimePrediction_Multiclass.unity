@@ -985,7 +985,7 @@ MonoBehaviour:
   velocity: {x: 0, y: 0, z: 0}
   position: {x: 0, y: 0, z: 0}
   saveFilePath: C:\Users\HARAM\Desktop\BsitckData
-  supermanPredictionModel: {fileID: 5022602860645237092, guid: 357f82ed77ac064449c9adbec9dc6d11, type: 3}
+  supermanPredictionModel: {fileID: 5022602860645237092, guid: a709eabcba4d32546898febb2342c3f4, type: 3}
 --- !u!1 &540290871
 GameObject:
   m_ObjectHideFlags: 0
@@ -1843,8 +1843,8 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4278190080
-  m_fontColor: {r: 0, g: 0, b: 0, a: 1}
+    rgba: 4278192383
+  m_fontColor: {r: 1, g: 0.030960465, b: 0, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -3414,7 +3414,7 @@ MonoBehaviour:
   velocity: {x: 0, y: 0, z: 0}
   position: {x: 0, y: 0, z: 0}
   saveFilePath: C:\Users\HARAM\Desktop\BsitckData
-  rainbowPredictionModel: {fileID: 5022602860645237092, guid: d5e246e53238e304bbfd49ef965292f7, type: 3}
+  rainbowPredictionModel: {fileID: 5022602860645237092, guid: 164ff04af06adcd4a97f165825f29aeb, type: 3}
 --- !u!1 &1673288520
 GameObject:
   m_ObjectHideFlags: 0
@@ -4033,8 +4033,8 @@ MonoBehaviour:
   QuatList: []
   velocity: {x: 0, y: 0, z: 0}
   position: {x: 0, y: 0, z: 0}
-  saveFilePath: C:\Users\HARAM\Desktop\BsitckData\Rainbow_Interpol
-  dumbbellPredictionModel: {fileID: 5022602860645237092, guid: 67c6e24ee54b96c489ce141a70105f03, type: 3}
+  saveFilePath: C:\Users\HARAM\Desktop\BsitckData
+  dumbbellPredictionModel: {fileID: 5022602860645237092, guid: 271d6febdeffadd4fa144ae62c466301, type: 3}
 --- !u!1 &2093617594
 GameObject:
   m_ObjectHideFlags: 0

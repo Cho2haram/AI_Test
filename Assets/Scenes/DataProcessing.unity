@@ -230,7 +230,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &1006920922
 Transform:
   m_ObjectHideFlags: 0
@@ -258,8 +258,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 259f64a4b14662d4483b3b7fae595641, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  rawDataFolderPath: C:\Users\HARAM\Desktop\BsitckData\July_1w\Orange\Fail_4
-  convertDataFolderPath: C:\Users\HARAM\Desktop\BsitckData\July_1w_convert\Orange\Fail_4
+  rawFolderPath: C:\Users\HARAM\Desktop\BstickData_report\Final Data_Raw\Rainbow\Success
+  outputFolderPath: C:\Users\HARAM\Desktop\BstickData_report\Final Data_Convert\Rainbow\Success
+  interval: 10
+  alpha: 0.6
+  spikeThreshold: 20
 --- !u!1 &1061074097
 GameObject:
   m_ObjectHideFlags: 0
