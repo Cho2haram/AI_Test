@@ -262,11 +262,7 @@ public class Dumbbell_space : MonoBehaviour
     Quaternion ConvertIMUToUnity ( Quaternion imuQ )
     {
         Quaternion qLeftHand = new Quaternion ( imuQ. x , imuQ. y , -imuQ. z , -imuQ. w );
-        //return new Quaternion ( -qLeftHand. z , qLeftHand. x , qLeftHand. y , qLeftHand. w );
         return new Quaternion ( -qLeftHand. y , qLeftHand. x , qLeftHand. z , qLeftHand. w );
-
-
-
     }
 
 
@@ -376,7 +372,7 @@ public class Dumbbell_space : MonoBehaviour
         return interpolatedData;
     }
 
-    // ✅ 표준화 함수 추가
+    //표준화 함수 추가
     float [ ] StandardizeInput ( float [ ] inputArray )
     {
         float [ ] standardized = new float [ inputArray. Length ];

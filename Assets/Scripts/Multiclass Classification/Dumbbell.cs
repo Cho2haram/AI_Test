@@ -260,11 +260,7 @@ public class Dumbbell : MonoBehaviour
     Quaternion ConvertIMUToUnity ( Quaternion imuQ )
     {
         Quaternion qLeftHand = new Quaternion ( imuQ. x , imuQ. y , -imuQ. z , -imuQ. w );
-        //return new Quaternion ( -qLeftHand. z , qLeftHand. x , qLeftHand. y , qLeftHand. w );
         return new Quaternion ( -qLeftHand. y , qLeftHand. x , qLeftHand. z , qLeftHand. w );
-
-
-
     }
 
 
@@ -374,7 +370,7 @@ public class Dumbbell : MonoBehaviour
         return interpolatedData;
     }
 
-    // ✅ 표준화 함수 추가
+    //표준화 함수 추가
     float [ ] StandardizeInput ( float [ ] inputArray )
     {
         float [ ] standardized = new float [ inputArray. Length ];
@@ -539,9 +535,6 @@ public class Dumbbell : MonoBehaviour
                 break;
         }
     }
-
-
-   
 
 
     // 터치 버튼이 눌렸는지 확인

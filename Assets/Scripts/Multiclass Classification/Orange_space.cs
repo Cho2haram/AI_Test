@@ -274,11 +274,7 @@ public class Orange_space : MonoBehaviour
     Quaternion ConvertIMUToUnity ( Quaternion imuQ )
     {
         Quaternion qLeftHand = new Quaternion ( imuQ. x , imuQ. y , -imuQ. z , -imuQ. w );
-        //return new Quaternion ( -qLeftHand. z , qLeftHand. x , qLeftHand. y , qLeftHand. w );
         return new Quaternion ( -qLeftHand. y , qLeftHand. x , qLeftHand. z , qLeftHand. w );
-
-
-
     }
 
 

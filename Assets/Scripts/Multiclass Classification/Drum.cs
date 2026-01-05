@@ -264,11 +264,7 @@ public class Drum : MonoBehaviour
     Quaternion ConvertIMUToUnity ( Quaternion imuQ )
     {
         Quaternion qLeftHand = new Quaternion ( imuQ. x , imuQ. y , -imuQ. z , -imuQ. w );
-        //return new Quaternion ( -qLeftHand. z , qLeftHand. x , qLeftHand. y , qLeftHand. w );
         return new Quaternion ( -qLeftHand. y , qLeftHand. x , qLeftHand. z , qLeftHand. w );
-
-
-
     }
 
     void SaveRawDataToCSV ( )
@@ -374,7 +370,7 @@ public class Drum : MonoBehaviour
         return interpolatedData;
     }
 
-    // ✅ 표준화 함수 추가
+    // 표준화 함수 추가
     float [ ] StandardizeInput ( float [ ] inputArray )
     {
         float [ ] standardized = new float [ inputArray. Length ];
@@ -447,7 +443,7 @@ public class Drum : MonoBehaviour
         ProcessPredictions ( predictions );
     }
 
-    // ✅ 다중분류 결과 처리 함수
+    // 다중분류 결과 처리 함수
     void ProcessPredictions ( List<int> predictions )
     {
         int totalCount = predictions. Count;
@@ -475,7 +471,7 @@ public class Drum : MonoBehaviour
 
 
 
-        // ✅ Majority class별 메시지 출력
+        // Majority class별 메시지 출력
         switch ( majorityClass )
         {
 

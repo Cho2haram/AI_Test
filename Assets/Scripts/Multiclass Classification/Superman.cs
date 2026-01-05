@@ -259,7 +259,6 @@ public class Superman : MonoBehaviour
     Quaternion ConvertIMUToUnity ( Quaternion imuQ )
     {
         Quaternion qLeftHand = new Quaternion ( imuQ. x , imuQ. y , -imuQ. z , -imuQ. w );
-        //return new Quaternion ( -qLeftHand. z , qLeftHand. x , qLeftHand. y , qLeftHand. w );
         return new Quaternion ( -qLeftHand. y , qLeftHand. x , qLeftHand. z , qLeftHand. w );
     }
 
@@ -369,7 +368,7 @@ public class Superman : MonoBehaviour
         return interpolatedData;
     }
 
-    // ✅ 표준화 함수 추가
+    //표준화 함수 추가
     float [ ] StandardizeInput ( float [ ] inputArray )
     {
         float [ ] standardized = new float [ inputArray. Length ];
@@ -442,7 +441,7 @@ public class Superman : MonoBehaviour
         ProcessPredictions ( predictions );
     }
 
-    // ✅ 다중분류 결과 처리 함수
+    //다중분류 결과 처리 함수
     void ProcessPredictions ( List<int> predictions )
     {
         int totalCount = predictions. Count;
@@ -468,7 +467,7 @@ public class Superman : MonoBehaviour
         // 평균 확률도 예시로 출력 (여긴 majority class의 확률만 표시)
         float majorityPercentage = ( float ) classCounts [ majorityClass ] / totalCount * 100f;
 
-        // ✅ Majority class별 메시지 출력
+        //Majority class별 메시지 출력
         switch ( majorityClass )
         {
 
